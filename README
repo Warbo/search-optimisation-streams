@@ -1,0 +1,42 @@
+Search and Optimisation Streams
+
+This library defines a bunch of streams (infinite lists),
+for search and optimisation.
+
+A stream is a never-ending source of values. In our case,
+a stream is implemented as a Javascript function with no
+arguments. This is a "thunk", or a computation-in-waiting.
+Whenever we like, we can call the function and it returns
+the next value for us. Calling the function again will
+return the next value, and so on. The next value of a
+stream can depend arbitrarily on the previous values, but
+it cannot depend on any future values. This is enabled by
+making all streams either pure functions, or closures.
+
+Search is the problem of constructing suitable inputs for
+a function, such that it gives a known output. This is
+somewhat the inverse of most computations, which take
+inputs and generate unknown outputs. Usually, as is the
+case in this library, the output we want is boolean true,
+and the function is some user-defined measure of
+acceptibility. We usually require the user supplies the
+domain of values as well (eg. booleans, integers, strings,
+etc.), or at least some enumerating function.
+
+Optimisation is a generalisation of search. Instead of
+requiring a specific value, we use an ordered co-domain
+(for example, numbers), and construct values which give
+higher and higher acceptibility.
+
+This library provides many basic streams (for example
+"zeros" and "ones", which give values 0, 0, 0, ... and
+1, 1, 1, ... respectively), as well as a wealth of
+combinators to produce new streams (for example,
+interleave(zeros(), ones()) gives 0, 1, 0, 1, 0, 1, ...)
+and stream-building functions (for example constant, where
+constant(x) gives x, x, x, ...).
+
+By using the common framework of streams, we build up from
+these basic building blocks to quite elaborate
+metaheuristic search/optimisation algorithms, including
+genetic algorithms and virtual machine enumerators.
