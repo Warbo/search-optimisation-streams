@@ -1,7 +1,8 @@
+var curry_test;
 var tests = function(num) {
     if (typeof num === typeof undefined) num = +Infinity;
     var ts = [
-        function() {
+        curry_test = function() {
 	    // Use uncurried take and map, since we're testing curry!
             var take = function(n, stream) {
 		var result = [];
@@ -490,7 +491,7 @@ var tests = function(num) {
 	    stream = innovator(stream);
 	    return function() {
 		var val = stream();
-		if (known.indexOf(val) !== -1){p(known);p(val); return 'innovator';}
+		if (known.indexOf(val) !== -1) return 'innovator';
 		known.push(val);
 	    };
 	},  // innovator
@@ -517,3 +518,35 @@ var tests = function(num) {
     if (failed.length) return failed;
     return true;
 };
+
+var countdown = function(n, s) {
+    while (n-- > 0) s();
+};
+
+var p2 = function(a) {
+    p(a);
+    return a;
+}
+
+var d;
+var b = function(n) {countdown(n, filter(
+    function(a)
+    {
+	p(a);
+	return true;
+    },innovator(
+    //ratchet(
+    //    tag(
+    //        function(a)
+    //        {
+    //            return Math.sin(
+    //                parseInt(
+    //                    a.join(''),
+    //                    2
+    //                )
+    //            );
+    //        },
+            fast_bbj_out()
+    //    )
+    //)
+)))};

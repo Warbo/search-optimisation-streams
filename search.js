@@ -57,9 +57,7 @@ var c = curry = function(f) {
 
 var apply = function(f, args) {
     // Returns f(args[0], args[1], ...)
-    return eval('f('+args.map(function(val, key) {
-        return 'args['+key+']';
-    }).join(', ')+')');
+    return f.apply(null, args);
 };
 
 var plus = c(function(a, b) {
@@ -197,6 +195,192 @@ var array_compare = c(function(a, b) {
 
 var identity = function(x) { return x; };
 
+var bbj = c(function(i, o, inc, input, n) {
+    // A simple, potentially Turing Complete language,
+    // BitBitJump. We have an unbounded memory full of
+    // zeros, the start of which is initialised to the
+    // binary form of n.
+    // We have a program counter (initially 0), an
+    // address length (initially 2) and a single
+    // instruction which runs over and over:
+    // Read 2 addresses x and y, starting at the
+    // program counter; copy the bit at x to the bit
+    // at y; read a third address from after the
+    // program counter, and use this as the new
+    // program counter.
+    // This implementation uses a bignum (arbitrary
+    // size integer) library to store the memory and
+    // addresses, but the algorithm just uses +, -, *,
+    // /, % and power-of.
+    // We parameterise this implementation with input,
+    // output and address-size-increment. i is a pair
+    // [magic address, destination]; writing 1 to the
+    // magic address will read a value from the input
+    // stream and write it to the destination address.
+    // Similarly o is [magic address, source]; writing
+    // a 1 to the magic address will append whatever is
+    // at the source address to the output we return.
+    // inc is a magic address; writing a 1 to it will
+    // increment the address size, which makes us
+    // Turing Complete. Note that you can disable any
+    // of these by using negative numbers as the magic
+    // addresses (hence "potentially Turing Complete",
+    // since we're not if inc is inaccessible address)
+    load('biginteger.js');
+    var one = BigInteger(1);
+    var two = BigInteger(2);
+    i[0] = BigInteger(i[0]);
+    i[1] = BigInteger(i[1]);
+    o[0] = BigInteger(o[0]);
+    o[1] = BigInteger(o[1]);
+    inc = BigInteger(inc);
+    var pc = BigInteger(0);
+    var mem;
+    var w = BigInteger(2);
+    if (Array.isArray(n)) mem = BigInteger.parse(n.join(''), 2);
+    else mem = BigInteger(n);
+    var output = [];
+    return function() {
+	// Read a word from the program counter
+	var x = mem.remainder(
+	    two.pow(
+		pc.add(w)
+	    )
+	).subtract(
+	    mem.remainder(
+		two.pow(pc)
+	    )
+	).quotient(
+	    two.pow(pc)
+	);
+
+	// Read the next word
+	var y = mem.remainder(
+	    two.pow(
+		pc.add(w).add(w)
+	    )
+	).subtract(
+	    mem.remainder(
+		two.pow(
+		    pc.add(w)
+		)
+	    )
+	).quotient(
+	    two.pow(
+		pc.add(w)
+	    )
+	);
+
+	// Split the memory into above and below the bit to set
+	var higher = mem.subtract(
+	    mem.remainder(
+		two.pow(
+		    y.add(one)
+		)
+	    )
+	);
+	var lower;
+	if (y.compare(BigInteger(0))) lower = mem.remainder(
+	    two.pow(
+		y.subtract(one)
+	    )
+	);
+	else lower = 0;
+
+	// Read the bit we're copying
+	var val = mem.remainder(
+	    two.pow(
+		x.add(one)
+	    )
+	).subtract(
+	    mem.remainder(
+		two.pow(x)
+	    )
+	).quotient(
+	    two.pow(x)
+	).valueOf();
+
+	// Update the memory (or invoke magic)
+	if (val && y.compare(i[0]) === 0) {
+	    val = input();
+	    y = i[1];
+	}
+	else if (val && y.compare(o[0]) === 0) {
+	    output.push(
+		mem.remainder(
+		    two.pow(
+			o[1].add(one)
+		    )
+		).subtract(
+		    mem.remainder(
+			two.pow(o[1])
+		    )
+		).quotient(
+		    two.pow(o[1])
+		).valueOf()
+	    );
+	    val = mem.remainder(
+		two.pow(
+		    y.add(one)
+		)
+	    ).subtract(
+		mem.remainder(
+		    two.pow(y)
+		)
+	    ).quotient(
+		two.pow(y)
+	    ).valueOf();
+	}
+	else if (val && y === inc) {
+	    w = w.add(one);
+	    val = mem.remainder(
+		two.pow(
+		    y.add(one)
+		)
+	    ).subtract(
+		mem.remainder(
+		    two.pow(y)
+		)
+	    ).divide(
+		two.pow(y)
+	    ).valueOf();
+	}
+	mem = higher.add(
+	    two.pow(y).multiply(
+		BigInteger(val)
+	    )
+	).add(lower);
+
+	// Read the next word and jump where it says
+	pc = mem.remainder(
+	    two.pow(
+		pc.add(
+		    w.multiply(BigInteger(3))
+		)
+	    ).subtract(
+		mem.remainder(
+		    two.pow(
+			pc.add(w).add(w)
+		    )
+		)
+	    )
+	).quotient(
+	    two.pow(
+		pc.add(w).add(w)
+	    )
+	);
+	return output;
+    };
+});
+
+var bbj_pure = bbj([-1, -1], [-1, -1], -1, function(){});
+
+var bbj_io = bbj([0,1], [2,3], 4);
+
+var bbj_outputter = bbj([-1, -2], [0, 1], 2, function(){});
+
+var bbj_lazy = function(){  };
+
 /////////////////////////////
 // Streams and combinators //
 /////////////////////////////
@@ -292,188 +476,8 @@ var simple = function() {
     // SIMPLE, as defined by Jurgen Schmidhuber.
     // Returns every binary sequence in ascending
     // order.
-    return enumerate([0, 1]);
+    return carrying_counter(2);
 };
-
-var bbj = c(function(i, o, inc, input, n) {
-    // A simple, potentially Turing Complete language,
-    // BitBitJump. We have an unbounded memory full of
-    // zeros, the start of which is initialised to the
-    // binary form of n.
-    // We have a program counter (initially 0), an
-    // address length (initially 2) and a single
-    // instruction which runs over and over:
-    // Read 2 addresses x and y, starting at the
-    // program counter; copy the bit at x to the bit
-    // at y; read a third address from after the
-    // program counter, and use this as the new
-    // program counter.
-    // This implementation uses a bignum (arbitrary
-    // size integer) library to store the memory and
-    // addresses, but the algorithm just uses +, -, *,
-    // /, % and power-of.
-    // We parameterise this implementation with input,
-    // output and address-size-increment. i is a pair
-    // [magic address, destination]; writing 1 to the
-    // magic address will read a value from the input
-    // stream and write it to the destination address.
-    // Similarly o is [magic address, source]; writing
-    // a 1 to the magic address will append whatever is
-    // at the source address to the output we return.
-    // inc is a magic address; writing a 1 to it will
-    // increment the address size, which makes us
-    // Turing Complete. Note that you can disable any
-    // of these by using negative numbers as the magic
-    // addresses (hence "potentially Turing Complete",
-    // since we're not if inc is inaccessible address)
-    load('biginteger.js');
-    var one = BigInteger(1);
-    var two = BigInteger(2);
-    i[0] = BigInteger(i[0]);
-    i[1] = BigInteger(i[1]);
-    o[0] = BigInteger(o[0]);
-    o[1] = BigInteger(o[1]);
-    inc = BigInteger(inc);
-    var pc = BigInteger(0);
-    var mem;
-    var w = BigInteger(2);
-    if (Array.isArray(n)) mem = BigInteger.parse(n.join(''), 2);
-    else mem = BigInteger(n);
-    var output = [];
-    return function() {
-	// Read a word from the program counter
-	var x = mem.remainder(
-	    two.pow(
-		pc.add(w)
-	    )
-	).subtract(
-	    mem.remainder(
-		two.pow(pc)
-	    )
-	).quotient(
-	    two.pow(pc)
-	);
-	// Read the next word
-	var y = mem.remainder(
-	    two.pow(
-		pc.add(w).add(w)
-	    )
-	).subtract(
-	    mem.remainder(
-		two.pow(
-		    pc.add(w)
-		)
-	    )
-	).quotient(
-	    two.pow(
-		pc.add(w)
-	    )
-	);
-	// Split the memory into above and below the bit to set
-	var higher = mem.subtract(
-	    mem.remainder(
-		two.pow(
-		    y.add(one)
-		)
-	    )
-	);
-	var lower;
-	if (y.compare(BigInteger(0))) lower = mem.remainder(
-	    two.pow(
-		y.subtract(one)
-	    )
-	);
-	else lower = 0;
-	// Read the bit we're copying
-	var val = mem.remainder(
-	    two.pow(
-		x.add(one)
-	    )
-	).subtract(
-	    mem.remainder(
-		two.pow(x)
-	    )
-	).quotient(
-	    two.pow(x)
-	).valueOf();
-
-	// Update the memory (or invoke magic)
-	if (val && y.compare(i[0]) === 0) {
-	    val = input();
-	    y = i[1];
-	}
-	else if (val && y.compare(o[0]) === 0) {
-	    output.push(
-		mem.remainder(
-		    two.pow(
-			o[1].add(one)
-		    )
-		).subtract(
-		    mem.remainder(
-			two.pow(o[1])
-		    )
-		).quotient(
-		    two.pow(o[1])
-		).valueOf()
-	    );
-	    val = mem.remainder(
-		two.pow(
-		    y.add(one)
-		)
-	    ).subtract(
-		mem.remainder(
-		    two.pow(y)
-		)
-	    ).quotient(
-		two.pow(y)
-	    ).valueOf();
-	}
-	else if (val && y === inc) {
-	    w = w.add(one);
-	    val = mem.remainder(
-		two.pow(
-		    y.add(one)
-		)
-	    ).subtract(
-		mem.remainder(
-		    two.pow(y)
-		)
-	    ).divide(
-		two.pow(y)
-	    ).valueOf();
-	}
-	mem = higher.add(
-	    two.pow(y).multiply(
-		BigInteger(val)
-	    )
-	).add(lower);
-	// Read the next word and jump where it says
-	pc = mem.remainder(
-	    two.pow(
-		pc.add(
-		    w.multiply(BigInteger(3))
-		)
-	    ).subtract(
-		mem.remainder(
-		    two.pow(
-			pc.add(w).add(w)
-		    )
-		)
-	    )
-	).quotient(
-	    two.pow(
-		pc.add(w).add(w)
-	    )
-	);
-	return output;
-    };
-});
-
-var bbj_pure = bbj([-1, -1], [-1, -1], -1, zeros());
-
-var bbj_io = bbj([0,1], [2,3], 4);
-
-var bbj_outputter = bbj([-1, -2], [0, 1], 2, zeros());
 
 var fast = c(function(symbols, run) {
     // FAST, as defined by Jurgen Schmidhuber.
@@ -485,7 +489,8 @@ var fast = c(function(symbols, run) {
     // [p, output] where p can be anything, as
     // long as it can be passed as step's
     // input. step should also accept an array
-    // of symbols. If no output is generated
+    // of symbols instead, as this is how it's
+    // initialised. If no output is generated
     // in a step, then make the output []
     var phase = 1;
     return map (
@@ -600,6 +605,22 @@ var levy_flight = function() {
     return random_walker(pareto());
 };
 
+var make_exponential = function(base) {
+    // Gives random (natural) numbers from an
+    // exponentially decaying probability distribution.
+    return function() {
+	var sample = 1 - Math.random();
+	var result = 0;
+	while (1.0 / Math.pow(base, result+1) < sample) {
+	    sample -= 1.0 / Math.pow(base, result+1);
+	    result++;
+	}
+	return result;
+    };
+};
+
+var binary_exponential = function() { return make_exponential(2); };
+
 var zip_with = c(function(f, comb1, comb2) {
     // Combines two streams using the given function
     return function() {
@@ -607,48 +628,52 @@ var zip_with = c(function(f, comb1, comb2) {
     };
 });
 
-var guess = c(function(symbols, step) {
+var guess = c(function(step, symbols, symbol_choice, phase_choice) {
     // GUESS, as defined by Jurgen Schmidhuber.
-    // Creates random programs from the given
-    // symbols and runs them for a random
-    // number of steps. Returns the output
-    // generated by the program.
-    // The step function should curry its
-    // program, which is a stream of symbols,
-    // to give a stream of output ([] meaning
-    // no output at this step).
+    // Creates random programs and runs them
+    // for a random number of steps. Returns
+    // the output generated by the program.
+    // [] means no output for a given step.
 
     // t controls each run to force halting
     var t;
-    // A random stream of input symbols.
+    // A stream of input symbols.
     // We decrease t as input is read, so
     // that longer programs are given less
-    // time
-    var input = map(
-        function(x) {
-            t /= symbols.length;
-            return symbols[x];
-        },
-        random_ints(symbols.length)
-    );
-    var steps = filter(
-        function(n) {
-            if (n) return true;
-            t *= symbols.length;
-            return false;
-        },
-        random_ints(symbols.length)
+    // time.
+    var input = finite_chooser(
+        symbols,
+        filter(
+            function(x) {
+                t /= symbols.length;
+                return true;
+            },
+            symbol_choice
+        )
     );
     return function() {
-        t = 1;
-        steps();
-        return reduce(
-	    [],
-	    concat,
-	    step(input)
-	);
+        t = phase_choice();
+	var steps_taken = 0;
+        var max_cell = 0;
+        var mem = function(index) {
+            while (index > max_cell) {
+	        mem[max_cell++] = input();
+            }
+	    return mem[index];
+        };
+
+	var output = [];
+	var instance = step(mem);
+	var result;
+	while (steps_taken <= t) {
+	    result = instance();
+	    if (result !== []) output.push(result);
+	};
+	return output;
     };
 });
+
+var guess_bbj_out = function() { return guess(bbj_lazy, [0, 1], random_bits(), binary_exponential()); };
 
 var make_scattered = c(function(ns, nil, comb, choice) {
     // Creates arrays a with lengths taken from ns.
@@ -677,6 +702,14 @@ var make_manhattan_steps = c(function(n, directions, steps) {
         steps,
         directions
     );
+});
+
+var finite_chooser = c(function(array, choices) {
+    // Chooses values from the given array, according
+    // to the indices given by choices
+    return function() {
+	return array[choices()];
+    };
 });
 
 var chooser = c(function(streams, choices) {
@@ -897,7 +930,7 @@ var make_survival_breeders = c(function(ns, f, fitness) {
 
 var make_fittest = function(comb) {
     // Returns the fittest individual from a population
-    // of fitnes-tagged values (ie. [f(x),x] )
+    // of fitness-tagged values (ie. [f(x),x] )
     return function() {
         var pop = comb();
         var fittest = 0;
@@ -1043,7 +1076,7 @@ var exhaustive = c(function(stream, symbols) {
     return interleave(stream, enumerate(symbols));
 });
 
-var tabu = function(ns, stream) {
+var tabu = c(function(ns, stream) {
     // Remembers up to n previous results,
     // and only gives out a value if it's
     // not in it's remembered list. n is
@@ -1060,7 +1093,7 @@ var tabu = function(ns, stream) {
 	if (mem.length > n) mem.shift();
 	return val;
     };
-};
+});
 
 var innovator = function(stream) {
     // Remembers all previous values,
@@ -1072,3 +1105,16 @@ var innovator = function(stream) {
     // will hang!
     return tabu(map(plus(1), counter()), stream);
 };
+
+var aixi = function(predictor, experimentor, inputs, rewards) {
+    // AIXI, as defined by Marcus Hutter.
+    // AIXI tries to give output which
+    // maximises the rewards, using
+    // information from the input stream.
+    // First we try to build a model of
+    // the input an reward streams, which
+    // predictor is used for.
+    // Once we have a good model, we find
+    // a good output for the model using
+    // experimentor.
+}
