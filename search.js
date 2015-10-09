@@ -197,6 +197,32 @@ var array_compare = c(function(a, b) {
 
 var identity = function(x) { return x; };
 
+var n_point_crossover = c(function(points, first, second) {
+    // Takes two array-like solutions (first and
+    // second) and swaps their elements at n points,
+    // chosen by rand.
+    var new_first = first.slice(0);
+    var new_second = second.slice(0);
+    points.forEach(function(n) {
+        var chunk1 = new_first.splice(n * new_first.length);
+        var chunk2 = new_second.splice(n * new_second.length);
+        new_first = new_first.concat(chunk1);
+        new_second = new_second.concat(chunk2);
+    });
+    return [new_first, new_second];
+});
+
+var flip_bit = c(function(rand, string) {
+    // Takes an array of booleans and a random number
+    // between 0 and 1. Indexes the array using the
+    // random number and flips the bit.
+    if (string.length === 0) return string;
+    var index = Math.floor(rand * string.length - 1);
+    var copy = string.slice(0, index);
+    copy.push(!string[index]);
+    return copy.concat(string.slice(index));
+});
+
 /////////////////////////////
 // Streams and combinators //
 /////////////////////////////
@@ -897,7 +923,7 @@ var make_survival_breeders = c(function(ns, f, fitness) {
 
 var make_fittest = function(comb) {
     // Returns the fittest individual from a population
-    // of fitnes-tagged values (ie. [f(x),x] )
+    // of fitness-tagged values (ie. [f(x),x] )
     return function() {
         var pop = comb();
         var fittest = 0;
@@ -911,6 +937,15 @@ var make_fittest = function(comb) {
 	return pop[fittest][1];
     };
 };
+
+var mutate = c(function(choices, step) {
+    return map(function(a) {
+        if (choices()) {
+            return step(a);
+        }
+        return a;
+    });
+});
 
 var extremal_optimiser = c(function(source, fitness, size) {
     // Performs extremal optimisation. This is similar
@@ -1040,7 +1075,7 @@ var exhaustive = c(function(stream, symbols) {
     // Makes the given search stream exhaustive by
     // taking every other result from a brute-force
     // enumeration of the given symbols
-    return interleave(stream, enumerate(symbols));
+    return interleave([stream, enumerate(symbols)]);
 });
 
 var tabu = function(ns, stream) {
