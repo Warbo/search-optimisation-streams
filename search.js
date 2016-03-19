@@ -30,7 +30,7 @@
 //    and state, but they must be curried into the
 //    stream functions. This minimises shared state
 //    and other such nastiness.
-// 
+//
 // As a consequence of this currying, we generally
 // don't ending up define streams directly, but
 // rather curryable functions (combinators, or
@@ -57,9 +57,7 @@ var c = curry = function(f) {
 
 var apply = function(f, args) {
     // Returns f(args[0], args[1], ...)
-    return eval('f('+args.map(function(val, key) {
-        return 'args['+key+']';
-    }).join(', ')+')');
+    return f.apply(null, args);
 };
 
 var plus = c(function(a, b) {
@@ -379,6 +377,7 @@ var bbj = c(function(i, o, inc, input, n) {
 	).quotient(
 	    two.pow(pc)
 	);
+
 	// Read the next word
 	var y = mem.remainder(
 	    two.pow(
@@ -395,6 +394,7 @@ var bbj = c(function(i, o, inc, input, n) {
 		pc.add(w)
 	    )
 	);
+
 	// Split the memory into above and below the bit to set
 	var higher = mem.subtract(
 	    mem.remainder(
@@ -410,6 +410,7 @@ var bbj = c(function(i, o, inc, input, n) {
 	    )
 	);
 	else lower = 0;
+
 	// Read the bit we're copying
 	var val = mem.remainder(
 	    two.pow(
@@ -473,6 +474,7 @@ var bbj = c(function(i, o, inc, input, n) {
 		BigInteger(val)
 	    )
 	).add(lower);
+
 	// Read the next word and jump where it says
 	pc = mem.remainder(
 	    two.pow(
@@ -495,11 +497,111 @@ var bbj = c(function(i, o, inc, input, n) {
     };
 });
 
-var bbj_pure = bbj([-1, -1], [-1, -1], -1, zeros());
+var bbj_pure = bbj([-1, -1], [-1, -1], -1, function(){});
 
 var bbj_io = bbj([0,1], [2,3], 4);
 
-var bbj_outputter = bbj([-1, -2], [0, 1], 2, zeros());
+var bbj_outputter = bbj([-1, -2], [0, 1], 2, function(){});
+
+var bbj_lazy = function(){  };
+
+/////////////////////////////
+// Streams and combinators //
+/////////////////////////////
+
+var constant = function(val) {
+    // A constant stream always gives the same
+    // value. This combinator makes constant
+    // streams.
+    return function() {
+        return val;
+    };
+};
+
+var zeros = function() {
+    // A stream of 0s
+    return constant(0);
+};
+
+var ones = function() {
+    // A stream of 1s
+    return constant(1);
+};
+
+var reduce = c(function(init, f, stream) {
+    // Reduce combines the results of a
+    // stream using a reduction function.
+    // For function f, initial value init
+    // and stream values a, b, c, ...
+    // reduce returns:
+    // f(init, a)
+    // f(f(init, a), b)
+    // f(f(f(init, a), b), c)
+    // ...
+    var comb = function() {
+        comb = function() {
+            init = f(init, stream());
+            return init;
+        };
+        return init;
+    };
+    return function() {
+        return comb();
+    };
+});
+
+var counter = function() {
+    // A useful example of a reduction.
+    // Produces a stream of the Naturals
+    return reduce(0, plus, ones());
+};
+
+var hoard = function(comb) {
+    // A reducer which appends all results to an
+    // array
+    return reduce([], catenate, comb);
+};
+
+var delayer = c(function(vals, stream) {
+    // Returns each element of the given
+    // array, then becomes the given stream
+    var index = 0;
+    return function() {
+        if (index < vals.length) return vals[index++];
+        else return stream();
+    };
+});
+
+var delay = c(function(val, stream) {
+    // Returns the given value, then becomes
+    // the given stream
+    return delayer([val], stream);
+});
+
+var map = c(function(f, comb) {
+    // Maps the given function over the given
+    // stream.
+    return function() {
+        return f(comb());
+    };
+});
+
+var iterate = c(function(f, val) {
+    // Takes a function f and a value x, returns
+    // the stream f(x), f(f(x)), f(f(f(x))), ...
+    var result = val;
+    return function() {
+        result = f(result);
+        return result;
+    };
+});
+
+var simple = function() {
+    // SIMPLE, as defined by Jurgen Schmidhuber.
+    // Returns every binary sequence in ascending
+    // order.
+    return carrying_counter(2);
+};
 
 var fast = c(function(symbols, run) {
     // FAST, as defined by Jurgen Schmidhuber.
@@ -511,7 +613,8 @@ var fast = c(function(symbols, run) {
     // [p, output] where p can be anything, as
     // long as it can be passed as step's
     // input. step should also accept an array
-    // of symbols. If no output is generated
+    // of symbols instead, as this is how it's
+    // initialised. If no output is generated
     // in a step, then make the output []
     var phase = 1;
     return map (
@@ -626,6 +729,22 @@ var levy_flight = function() {
     return random_walker(pareto());
 };
 
+var make_exponential = function(base) {
+    // Gives random (natural) numbers from an
+    // exponentially decaying probability distribution.
+    return function() {
+	var sample = 1 - Math.random();
+	var result = 0;
+	while (1.0 / Math.pow(base, result+1) < sample) {
+	    sample -= 1.0 / Math.pow(base, result+1);
+	    result++;
+	}
+	return result;
+    };
+};
+
+var binary_exponential = function() { return make_exponential(2); };
+
 var zip_with = c(function(f, comb1, comb2) {
     // Combines two streams using the given function
     return function() {
@@ -633,48 +752,52 @@ var zip_with = c(function(f, comb1, comb2) {
     };
 });
 
-var guess = c(function(symbols, step) {
+var guess = c(function(step, symbols, symbol_choice, phase_choice) {
     // GUESS, as defined by Jurgen Schmidhuber.
-    // Creates random programs from the given
-    // symbols and runs them for a random
-    // number of steps. Returns the output
-    // generated by the program.
-    // The step function should curry its
-    // program, which is a stream of symbols,
-    // to give a stream of output ([] meaning
-    // no output at this step).
+    // Creates random programs and runs them
+    // for a random number of steps. Returns
+    // the output generated by the program.
+    // [] means no output for a given step.
 
     // t controls each run to force halting
     var t;
-    // A random stream of input symbols.
+    // A stream of input symbols.
     // We decrease t as input is read, so
     // that longer programs are given less
-    // time
-    var input = map(
-        function(x) {
-            t /= symbols.length;
-            return symbols[x];
-        },
-        random_ints(symbols.length)
-    );
-    var steps = filter(
-        function(n) {
-            if (n) return true;
-            t *= symbols.length;
-            return false;
-        },
-        random_ints(symbols.length)
+    // time.
+    var input = finite_chooser(
+        symbols,
+        filter(
+            function(x) {
+                t /= symbols.length;
+                return true;
+            },
+            symbol_choice
+        )
     );
     return function() {
-        t = 1;
-        steps();
-        return reduce(
-	    [],
-	    concat,
-	    step(input)
-	);
+        t = phase_choice();
+	var steps_taken = 0;
+        var max_cell = 0;
+        var mem = function(index) {
+            while (index > max_cell) {
+	        mem[max_cell++] = input();
+            }
+	    return mem[index];
+        };
+
+	var output = [];
+	var instance = step(mem);
+	var result;
+	while (steps_taken <= t) {
+	    result = instance();
+	    if (result !== []) output.push(result);
+	};
+	return output;
     };
 });
+
+var guess_bbj_out = function() { return guess(bbj_lazy, [0, 1], random_bits(), binary_exponential()); };
 
 var make_scattered = c(function(ns, nil, comb, choice) {
     // Creates arrays a with lengths taken from ns.
@@ -703,6 +826,14 @@ var make_manhattan_steps = c(function(n, directions, steps) {
         steps,
         directions
     );
+});
+
+var finite_chooser = c(function(array, choices) {
+    // Chooses values from the given array, according
+    // to the indices given by choices
+    return function() {
+	return array[choices()];
+    };
 });
 
 var chooser = c(function(streams, choices) {
@@ -1078,7 +1209,7 @@ var exhaustive = c(function(stream, symbols) {
     return interleave([stream, enumerate(symbols)]);
 });
 
-var tabu = function(ns, stream) {
+var tabu = c(function(ns, stream) {
     // Remembers up to n previous results,
     // and only gives out a value if it's
     // not in it's remembered list. n is
@@ -1095,7 +1226,7 @@ var tabu = function(ns, stream) {
 	if (mem.length > n) mem.shift();
 	return val;
     };
-};
+});
 
 var innovator = function(stream) {
     // Remembers all previous values,
@@ -1107,3 +1238,16 @@ var innovator = function(stream) {
     // will hang!
     return tabu(map(plus(1), counter()), stream);
 };
+
+var aixi = function(predictor, experimentor, inputs, rewards) {
+    // AIXI, as defined by Marcus Hutter.
+    // AIXI tries to give output which
+    // maximises the rewards, using
+    // information from the input stream.
+    // First we try to build a model of
+    // the input an reward streams, which
+    // predictor is used for.
+    // Once we have a good model, we find
+    // a good output for the model using
+    // experimentor.
+}
